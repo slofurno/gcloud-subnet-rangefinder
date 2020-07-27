@@ -215,7 +215,7 @@ func findSmallest(root *Tree, path uint, mask, depth int) []match {
 	)
 }
 
-var size = flag.Int("size", 20, "size of cidr range")
+var sizes = flag.String("sizes", "20", "size of cidr range")
 var project = flag.String("project", "", "gcloud project")
 var region = flag.String("region", "us-central1", "gcloud region")
 var network = flag.String("network", "", "network to search in")
@@ -225,7 +225,16 @@ func main() {
 	targetNetwork := *network
 	project := *project
 	region := *region
-	size := *size
+	sizes := *sizes
+
+	xs := []int{}
+	for _, s := range strings.Split(sizes, ",") {
+		x, err := strconv.Atoi(s)
+		if err != nil {
+			panic(err)
+		}
+		xs = append(xs, x)
+	}
 
 	ctx := context.Background()
 	computeService, err := compute.NewService(ctx)
@@ -291,8 +300,10 @@ func main() {
 		network.Insert(sub)
 	}
 
-	next := network.FindSmallest(size)
-	next.name = "< new >"
-	network.Insert(next)
+	for _, x := range xs {
+		next := network.FindSmallest(x)
+		next.name = "< new >"
+		network.Insert(next)
+	}
 	network.Print()
 }
