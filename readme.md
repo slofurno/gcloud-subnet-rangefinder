@@ -1,8 +1,17 @@
+Do you need to create gcp subnet secondary ranges?
+
+This tool will inspect all of the used ranges in your network, and suggest
+ranges based on some greedy bin packing.
+
+* does not actually create ranges for you *
 
 #### Usage
+```
+go install github.com/slofurno/gcloud-subnet-rangefinder
+```
 
 ```
-./gcloud-subnet-rangefinder -project my-project -network my-network -sizes 16,18,20,16
+gcloud-subnet-rangefinder -project my-project -network my-network -sizes 16,18,20,16
 ```
 
 ```sh
