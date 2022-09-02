@@ -4,11 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"strconv"
-	"strings"
-
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/container/v1beta1"
+	"os"
+	"strconv"
+	"strings"
 )
 
 var bitmask []uint
@@ -35,9 +35,11 @@ func parseByte(b string) uint {
 }
 
 func parseIP(name, ip string) *Address {
+	fmt.Println(name, ip)
 	parts := strings.Split(ip, "/")
 	if len(parts) != 2 {
-		panic("unexpected address format " + ip)
+		parts = []string{ip, "32"}
+		//panic("unexpected address format " + ip)
 	}
 
 	mask, err := strconv.Atoi(parts[1])
@@ -146,6 +148,8 @@ func bits(u uint) string {
 func insert(root *Tree, a *Address, depth int) *Tree {
 	if depth == a.mask {
 		if root != nil {
+			fmt.Println("existing overlap:", root.Val, a)
+			return root
 			panic("child ip range already exists")
 		}
 		return &Tree{
@@ -181,8 +185,17 @@ type match struct {
 	depth int
 }
 
-func (n *Network) FindSmallest(desiredMask int) *Address {
-	matches := findSmallest(n.root, n.prefix.Unmasked(), desiredMask, n.prefix.mask)
+func (n *Network) FindSmallest(under *Address, desiredMask int) *Address {
+	root := findExistingRoot(n.root, under, n.prefix.mask)
+	if root == nil {
+		return &Address{v4: under.v4, mask: desiredMask}
+	}
+
+	fmt.Printf("ROOT: %+v\n", root)
+	//matches := findSmallest(n.root, n.prefix.Unmasked(), desiredMask, n.prefix.mask)
+	//matches := findSmallest(root, under.Unmasked(), desiredMask, n.prefix.mask)
+	//matches := findSmallest(root, root.Val.Unmasked(), desiredMask, root.Val.mask)
+	matches := findSmallest(root, under.Unmasked(), desiredMask, under.mask)
 
 	bestMatch := matches[0]
 	for i := 1; i < len(matches); i++ {
@@ -192,6 +205,22 @@ func (n *Network) FindSmallest(desiredMask int) *Address {
 	}
 
 	return &Address{v4: bestMatch.path, mask: desiredMask}
+}
+
+func findExistingRoot(root *Tree, a *Address, depth int) *Tree {
+	if root == nil {
+		return nil
+	}
+
+	if depth == a.mask {
+		return root
+	}
+
+	p := a.v4 & bitmask[depth]
+	if p == 0 {
+		return findExistingRoot(root.L, a, depth+1)
+	}
+	return findExistingRoot(root.R, a, depth+1)
 }
 
 func findSmallest(root *Tree, path uint, mask, depth int) []match {
@@ -220,21 +249,113 @@ var project = flag.String("project", "", "gcloud project")
 var region = flag.String("region", "us-central1", "gcloud region")
 var network = flag.String("network", "", "network to search in")
 
-func main() {
-	flag.Parse()
-	targetNetwork := *network
-	project := *project
-	region := *region
-	sizes := *sizes
+// type Args struct {
+// 	args []string
+// 	j    int
+// }
+//
+// func (s *Args) Next() bool {
+// 	return s.j < len(s.args)
+// }
+//
+// func (s *Args) Shift() string {
+// 	r := s.args[s.j]
+// 	s.j++
+// 	return r
+// }
+//
+// func (s *Args) peek() string {
+// 	return s.args[s.j]
+// }
+//
+// func (s *Args) parseRange() req {
+// 	under := s.Shift()
+//
+// }
+//
+// func (s *Args) Parse(args []string) []req {
+// 	for _, arg := range args {
+// 		s.args = append(s.args, strings.Split(arg, "=")...)
+// 	}
+//
+// 	ret := []req{}
+// 	r := req{}
+// 	for s.Next() {
+// 		switch v := s.Shift(); v {
+// 		case "--range":
+//
+// 		default:
+// 		}
+// 	}
+// }
 
-	xs := []int{}
-	for _, s := range strings.Split(sizes, ",") {
-		x, err := strconv.Atoi(s)
-		if err != nil {
-			panic(err)
-		}
-		xs = append(xs, x)
+type req struct {
+	cidr  string
+	sizes []int
+}
+
+func atoi(s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		panic(err)
 	}
+	return n
+}
+
+type Args struct {
+	reqs    []req
+	project string
+	region  string
+}
+
+func parseargs() *Args {
+
+	ret := &Args{region: "us-central1"}
+
+	for _, x := range os.Args[1:] {
+		fmt.Println(x)
+		if strings.Index(x, "--range") == 0 {
+			x := x[7:]
+			parts := strings.Split(x, ":")
+			sizes := []int{}
+			for _, s := range strings.Split(parts[1], ",") {
+				sizes = append(sizes, atoi(s))
+			}
+
+			ret.reqs = append(ret.reqs, req{
+				cidr:  parts[0],
+				sizes: sizes,
+			})
+		}
+
+		if strings.Index(x, "--project") == 0 {
+			ret.project = x[9:]
+		}
+	}
+
+	return ret
+	//args := os.Args[2:]
+	//for _, arg := range os.Args[2:] {
+	//	if strings.Index(arg, "--cidr") == 0 {
+
+	//	}
+	//}
+}
+
+// 192.168.10.0/24
+// https://cloud.google.com/build/docs/private-pools/set-up-private-pool-to-use-in-vpc-network#setup-private-connection
+func main() {
+	//flag.Parse()
+	//targetNetwork := *network
+	//project := *project
+	//TODO: need all regions
+	//region := *region
+	//sizes := *sizes
+
+	args := parseargs()
+	fmt.Println(args)
+	project := args.project
+	region := args.region
 
 	ctx := context.Background()
 	computeService, err := compute.NewService(ctx)
@@ -246,7 +367,18 @@ func main() {
 		panic(err)
 	}
 
-	existingSubnets := []*Address{}
+	//existingSubnets := []*Address{}
+	existingNetworks := map[string][]*Address{}
+	networkRanges := map[string]string{}
+
+	if err := computeService.Networks.List(project).Pages(ctx, func(page *compute.NetworkList) error {
+		for _, network := range page.Items {
+			networkRanges[network.Name] = network.IPv4Range
+		}
+		return nil
+	}); err != nil {
+		panic(err)
+	}
 
 	parent := fmt.Sprintf("projects/%s/locations/-", project)
 	clusters, err := containers.Projects.Locations.Clusters.List(parent).Do()
@@ -255,23 +387,17 @@ func main() {
 	}
 
 	for _, cluster := range clusters.Clusters {
-		if cluster.Network != targetNetwork {
-			continue
-		}
-
-		existingSubnets = append(existingSubnets, parseIP("clusters/"+cluster.Name, cluster.MasterIpv4CidrBlock))
+		existingNetworks[cluster.Network] = append(existingNetworks[cluster.Network], parseIP("clusters/"+cluster.Name, cluster.MasterIpv4CidrBlock))
 	}
 
 	req := computeService.Subnetworks.List(project, region)
 	if err := req.Pages(ctx, func(page *compute.SubnetworkList) error {
 		for _, subnetwork := range page.Items {
 			shortname := networkShortName(subnetwork.Network)
-			if shortname != targetNetwork {
-				continue
-			}
-			existingSubnets = append(existingSubnets, parseIP("subnet/"+subnetwork.Name, subnetwork.IpCidrRange))
+
+			existingNetworks[shortname] = append(existingNetworks[shortname], parseIP("subnet/"+subnetwork.Name, subnetwork.IpCidrRange))
 			for _, sec := range subnetwork.SecondaryIpRanges {
-				existingSubnets = append(existingSubnets, parseIP("secondary/"+sec.RangeName, sec.IpCidrRange))
+				existingNetworks[shortname] = append(existingNetworks[shortname], parseIP("secondary/"+sec.RangeName, sec.IpCidrRange))
 			}
 		}
 		return nil
@@ -282,28 +408,62 @@ func main() {
 	addressReq := computeService.Addresses.List(project, region)
 	if err := addressReq.Pages(ctx, func(page *compute.AddressList) error {
 		for _, address := range page.Items {
-			if address.Network != targetNetwork {
-				continue
-			}
-			existingSubnets = append(existingSubnets, parseIP("addresses/"+address.Name, address.Address))
+			existingNetworks[address.Network] = append(existingNetworks[address.Network], parseIP("addresses/"+address.Name, address.Address))
 		}
 		return nil
 	}); err != nil {
 		panic(err)
 	}
 
-	network := &Network{
-		prefix: parseIP("root", "10.0.0.0/8"),
+	fmt.Println(existingNetworks)
+	fmt.Println(networkRanges)
+	nw := &Network{
+		prefix: parseIP("root", "0.0.0.0/0"),
 	}
+	for network, subnets := range existingNetworks {
+		if len(network) == 0 {
+			continue
+		}
 
-	for _, sub := range existingSubnets {
-		network.Insert(sub)
-	}
+		if strings.Index(network, "example") >= 0 {
+			continue
+		}
 
-	for _, x := range xs {
-		next := network.FindSmallest(x)
-		next.name = "< new >"
-		network.Insert(next)
+		for _, sub := range subnets {
+			nw.Insert(sub)
+		}
+
 	}
-	network.Print()
+	//nw.Print()
+
+	//for _, sub := range existingSubnets {
+	//	network.Insert(sub)
+	//}
+
+	for _, req := range args.reqs {
+		fmt.Println(req)
+		under := parseIP("root", req.cidr)
+		for _, x := range req.sizes {
+			next := nw.FindSmallest(under, x)
+			next.name = fmt.Sprintf("< new %s >", req.cidr)
+			nw.Insert(next)
+		}
+	}
+	//under := parseIP("target-network", targetNetwork)
+
+	//xs := []int{}
+	//for _, s := range strings.Split(sizes, ",") {
+	//	x, err := strconv.Atoi(s)
+	//	if err != nil {
+	//		panic(err)
+	//	}
+	//	xs = append(xs, x)
+	//}
+
+	//for _, x := range xs {
+	//	next := nw.FindSmallest(under, x)
+	//	next.name = "< new >"
+	//	nw.Insert(next)
+	//}
+	nw.Print()
 }
