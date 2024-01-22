@@ -35,7 +35,7 @@ func parseByte(b string) uint {
 }
 
 func parseIP(name, ip string) *Address {
-	fmt.Println(name, ip)
+	fmt.Println(">", name, ip)
 	parts := strings.Split(ip, "/")
 	if len(parts) != 2 {
 		parts = []string{ip, "32"}
@@ -387,7 +387,9 @@ func main() {
 	}
 
 	for _, cluster := range clusters.Clusters {
-		existingNetworks[cluster.Network] = append(existingNetworks[cluster.Network], parseIP("clusters/"+cluster.Name, cluster.MasterIpv4CidrBlock))
+		if cluster.MasterIpv4CidrBlock != "" {
+			existingNetworks[cluster.Network] = append(existingNetworks[cluster.Network], parseIP("clusters/"+cluster.Name, cluster.MasterIpv4CidrBlock))
+		}
 	}
 
 	req := computeService.Subnetworks.List(project, region)
